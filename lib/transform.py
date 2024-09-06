@@ -167,6 +167,16 @@ class StaffMonthly:
             df_list.append(df)
 
         final_df = pd.concat(df_list, ignore_index=True)
+        for i in final_df.columns:
+            if not (i in ["StaffID", "Type", "RunningTime", "CutOff"]):
+                final_df[i] = (
+                    final_df[i]
+                    .astype(str)
+                    .str.replace(",", "", regex=False)
+                    .astype(float)
+                )
+            if i in ["RunningTime", "CutOff"]:
+                final_df[i] = pd.to_datetime(final_df[i])
         return final_df
 
 
@@ -292,6 +302,16 @@ class WIPARAging:
             df_list.append(df)
 
         final_df = pd.concat(df_list, ignore_index=True)
+        for i in final_df.columns:
+            if not (i in ["ClientIdSubId", "RunningTime", "CutOff"]):
+                final_df[i] = (
+                    final_df[i]
+                    .astype(str)
+                    .str.replace(",", "", regex=False)
+                    .astype(float)
+                )
+            if i in ["RunningTime", "CutOff"]:
+                final_df[i] = pd.to_datetime(final_df[i])
         return final_df
 
 
@@ -412,6 +432,16 @@ class WIPARRecon:
             df_list.append(df)
 
         final_df = pd.concat(df_list, ignore_index=True)
+        for i in final_df.columns:
+            if not (i in ["ClientIdSubId", "RunningTime", "CutOff"]):
+                final_df[i] = (
+                    final_df[i]
+                    .astype(str)
+                    .str.replace(",", "", regex=False)
+                    .astype(float)
+                )
+            if i in ["RunningTime", "CutOff"]:
+                final_df[i] = pd.to_datetime(final_df[i])
         return final_df
 
 
