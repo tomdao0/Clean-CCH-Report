@@ -9,6 +9,72 @@ import pytz
 import os
 
 
+class StaffList:
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+
+    def process_files(self):
+        # Process each Staff
+        file_path = self.file_path
+        wb = openpyxl.load_workbook(file_path)
+        sheet = wb.worksheets[1]
+        last_row = sheet.max_row
+        D = {}
+
+        # Find last row with "Pay Type:"
+        for row in range(last_row - 6, last_row + 1):
+            cell = sheet[f"C{row}"]
+            if cell.value == "Pay Type:":
+                last_row = row + 1
+                break
+
+        # Find first row with "Client ID Sub ID"
+        for row in range(1, last_row):
+            if sheet[f"C{row}"].value is not None:
+                if sheet[f"C{row}"].value == "Staff ID":
+                    first_row = row + 1  # First position of StaffID
+                    break
+
+        # Process the data
+        for i in range(1, int((last_row - first_row + 1) / 15 + 1)):
+            StaffID = sheet[f"C{(i-1)*15 + first_row + 1}"].value
+            ReportName = sheet[f"D{(i-1)*15 + first_row + 1}"].value
+            StaffNameNull = sheet[f"D{(i-1)*15 + first_row + 2}"].value
+            StaffOffice = sheet[f"D{(i-1)*15 + first_row + 4}"].value
+            StaffBU = sheet[f"D{(i-1)*15 + first_row + 5}"].value
+            StaffDepartment = sheet[f"D{(i-1)*15 + first_row + 6}"].value
+            ReportingManager = sheet[f"K{(i-1)*15 + first_row + 5}"].value
+            StaffStatus = sheet[f"O{(i-1)*15 + first_row + 1}"].value
+            D[i] = [
+                StaffID,
+                ReportName,
+                StaffNameNull,
+                StaffOffice,
+                StaffBU,
+                StaffDepartment,
+                ReportingManager,
+                StaffStatus,
+            ]
+
+        # Create DataFrame
+        df = pd.DataFrame.from_dict(
+            D,
+            orient="index",
+            columns=[
+                "StaffID",
+                "ReportName",
+                "StaffNameNull",
+                "StaffOffice",
+                "StaffBU",
+                "StaffDepartment",
+                "ReportingManager",
+                "StaffStatus",
+            ],
+        )
+        return df
+
+
 class StaffMonthly:
 
     def __init__(self, folder_path, utcFormat):
