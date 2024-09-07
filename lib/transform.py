@@ -236,7 +236,7 @@ class WIPARAging:
             for i in range(1, int((last_row - first_row + 1) / 3 + 1)):
                 ClientIdSubId = sheet[f"B{(i-1)*3 + first_row}"].value.split(" ")[5]
                 ARTotal = sheet[f"D{(i-1)*3 + first_row + 1}"].value
-                AR0030 = sheet[f"G{(i-1)*3 + first_row + 1}"].value
+                AR0030 = sheet[f"F{(i-1)*3 + first_row + 1}"].value
                 AR3160 = sheet[f"H{(i-1)*3 + first_row + 1}"].value
                 AR6190 = sheet[f"I{(i-1)*3 + first_row + 1}"].value
                 AR91120 = sheet[f"J{(i-1)*3 + first_row + 1}"].value
@@ -244,13 +244,30 @@ class WIPARAging:
                 AR151180 = sheet[f"N{(i-1)*3 + first_row + 1}"].value
                 AROver180 = sheet[f"O{(i-1)*3 + first_row + 1}"].value
                 WIPTotal = sheet[f"D{(i-1)*3 + first_row + 2}"].value
-                WIP0030 = sheet[f"G{(i-1)*3 + first_row + 2}"].value
+                WIP0030 = sheet[f"F{(i-1)*3 + first_row + 2}"].value
                 WIP3160 = sheet[f"H{(i-1)*3 + first_row + 2}"].value
                 WIP6190 = sheet[f"I{(i-1)*3 + first_row + 2}"].value
                 WIP91120 = sheet[f"J{(i-1)*3 + first_row + 2}"].value
                 WIP121150 = sheet[f"M{(i-1)*3 + first_row + 2}"].value
                 WIP151180 = sheet[f"N{(i-1)*3 + first_row + 2}"].value
                 WIPOver180 = sheet[f"O{(i-1)*3 + first_row + 2}"].value
+                LastPaymentRow = sheet[f"B{(i-1)*3 + first_row + 1}"].value
+                if LastPaymentRow:
+                    date_match = re.search(r"\d{1,2}/\d{1,2}/\d{4}", LastPaymentRow)
+                    amount_match = re.search(
+                        r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?", LastPaymentRow
+                    )
+                    LastPaymentDate = date = (
+                        date_match.group() if date_match else "1/1/1900"
+                    )
+                    LastPaymentAmount = (
+                        amount_match.group().replace("$", "").replace(",", "")
+                        if amount_match
+                        else 0
+                    )
+                else:
+                    LastPaymentDate = "1/1/1900"
+                    LastPaymentAmount = 0
                 D[i] = [
                     ClientIdSubId,
                     ARTotal,
@@ -269,6 +286,8 @@ class WIPARAging:
                     WIP121150,
                     WIP151180,
                     WIPOver180,
+                    LastPaymentDate,
+                    LastPaymentAmount,
                 ]
 
             # Create DataFrame
@@ -293,24 +312,25 @@ class WIPARAging:
                     "WIP121150",
                     "WIP151180",
                     "WIPOver180",
+                    "LastPaymentDate",
+                    "LastPaymentAmount",
                 ],
             )
             df.fillna(0.0, inplace=True)
             df["RunningTime"] = current_time_utc_minus
             df["CutOff"] = first_date
-
             df_list.append(df)
 
         final_df = pd.concat(df_list, ignore_index=True)
         for i in final_df.columns:
-            if not (i in ["ClientIdSubId", "RunningTime", "CutOff"]):
+            if not (i in ["ClientIdSubId", "RunningTime", "CutOff", "LastPaymentDate"]):
                 final_df[i] = (
                     final_df[i]
                     .astype(str)
                     .str.replace(",", "", regex=False)
                     .astype(float)
                 )
-            if i in ["RunningTime", "CutOff"]:
+            if i in ["RunningTime", "CutOff", "LastPaymentDate"]:
                 final_df[i] = pd.to_datetime(final_df[i])
         return final_df
 
@@ -361,12 +381,13 @@ class WIPARRecon:
             for row in range(1, 20):
                 if sheet[f"I{row}"].value is not None:
                     if sheet[f"I{row}"].value[:21] == "For Accounting period":
-                        text = sheet[f"I{row}"].value
-                        dates = re.findall(
-                            r"\d{1,2}/\d{1,2}/\d{4} - \d{1,2}/\d{1,2}/\d{4}", text
-                        )
-                        first_date = dates[0].split(" - ")[1] if dates else None
-                        break
+                        txt = sheet[f"I{row}"].value
+                        if txt:
+                            date_match = re.search(r"\d{1,2}/\d{1,2}/\d{4}", txt)
+                            first_date = (
+                                date_match.group() if date_match else "No Date Found"
+                            )
+                            break
 
             # Process the data
             for i in range(1, int((last_row - first_row + 1) / 2 + 1)):
