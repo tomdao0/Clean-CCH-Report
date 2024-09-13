@@ -7,6 +7,258 @@ import re
 from datetime import datetime
 import pytz
 import os
+from openpyxl.utils import get_column_letter
+
+
+class ARBalanceListing:
+
+    def __init__(self, folder_path, utcFormat):
+        self.folder_path = folder_path
+        self.utcFormat = utcFormat
+
+    def process_files(self):
+        # Define timezone and current time based on UTC
+        utc_minus = pytz.timezone(self.utcFormat)
+        current_time_utc_minus = datetime.now(utc_minus).strftime("%Y-%m-%d %H:%M:%S")
+
+        # List to store DataFrames
+        df_list = []
+
+        # Get list of .xlsx files
+        xlsx_files = [
+            f
+            for f in os.listdir(self.folder_path)
+            if f.endswith(".xlsx") and not (f.startswith("~"))
+        ]
+
+        # Process each file
+        for file in xlsx_files:
+            file_path = os.path.join(self.folder_path, file)
+            wb = openpyxl.load_workbook(file_path)
+            sheet = wb.worksheets[1]
+            last_row = sheet.max_row
+            D = {}
+
+            # Find last row with "Grand Totals:"
+            for row in range(last_row - 6, last_row + 1):
+                cell = sheet[f"B{row}"]
+                if cell.value == "Grand Totals:":
+                    last_row = row - 2
+                    break
+
+            # Find first row with "Client ID.Sub ID"
+            for row in range(1, last_row):
+                if sheet[f"B{row}"].value is not None:
+                    if sheet[f"B{row}"].value[:16] == "Client ID.Sub ID":
+                        first_row = row
+                        break
+
+            # Find first row with value starting with "For Accounting period dates:" to determine begin date and end date
+            for row in range(1, 20):
+                if sheet[f"G{row}"].value is not None:
+                    if sheet[f"G{row}"].value[:28] == "For Accounting period dates:":
+                        txt = sheet[f"G{row}"].value
+                        match = re.search(
+                            r"For Transaction dates:(\d{1,2}/\d{1,2}/\d{4}) - (\d{1,2}/\d{1,2}/\d{4})",
+                            txt,
+                        )
+                        if match:
+                            begin_date = match.group(1)
+                            end_date = match.group(2)
+                        break
+            # Process the data
+
+            for i in range(first_row, last_row):
+                if sheet[f"B{i}"].value:
+                    ClientIdSubId = sheet[f"B{i}"].value.split(" ")[4]
+                    for j in range(2, 51, 2):
+                        if sheet[f"E{i + j}"].value:  # this row contain transactiondate
+                            TransactionDate = sheet[f"E{i + j}"].value
+
+                            Type = sheet[f"I{i + j}"].value
+                            TransNumber = sheet[f"J{i + j}"].value
+                            AppliedNumber = sheet[f"K{i + j}"].value
+                            Amount = sheet[f"N{i + j}"].value
+                            D[i + (j - 2) / 2 - first_row + 1] = [
+                                ClientIdSubId,
+                                TransactionDate,
+                                Type,
+                                TransNumber,
+                                AppliedNumber,
+                                Amount,
+                                begin_date,
+                                end_date,
+                            ]
+                        else:
+                            break
+                    # Create DataFrame
+            df = pd.DataFrame.from_dict(
+                D,
+                orient="index",
+                columns=[
+                    "ClientIdSubId",
+                    "TransactionDate",
+                    "Type",
+                    "TransNumber",
+                    "AppliedNumber",
+                    "Amount",
+                    "begin_date",
+                    "end_date",
+                ],
+            )
+            df["RunningTime"] = current_time_utc_minus
+            df_list.append(df)
+
+        final_df = pd.concat(df_list, ignore_index=True)
+        for i in ["RunningTime", "begin_date", "end_date", "TransactionDate"]:
+            final_df[i] = pd.to_datetime(final_df[i])
+        return final_df
+
+
+class StaffPosted:
+
+    def __init__(self, folder_path, utcFormat):
+        self.folder_path = folder_path
+        self.utcFormat = utcFormat
+
+    def process_files(self):
+        # Define timezone and current time based on UTC
+        utc_minus = pytz.timezone(self.utcFormat)
+        current_time_utc_minus = datetime.now(utc_minus).strftime("%Y-%m-%d %H:%M:%S")
+
+        # List to store DataFrames
+        df_list = []
+
+        # Get list of .xlsx files
+        xlsx_files = [
+            f
+            for f in os.listdir(self.folder_path)
+            if f.endswith(".xlsx") and not (f.startswith("~"))
+        ]
+
+        # Process each file
+        for file in xlsx_files:
+            file_path = os.path.join(self.folder_path, file)
+            wb = openpyxl.load_workbook(file_path)
+            D = {}
+            D_mapping_cols = {
+                "PostedHours": ["PostedHours", ""],
+                "BankedHoursUsed": ["BankedUsedHours", ""],
+                "BusinessHours": ["BusinessHours", ""],
+                "VarianceHours": ["VarianceHours", ""],
+                "NonbillHours": ["NonbillHours", ""],
+                "BillHours": ["Hours", ""],
+            }
+            sheet = wb.worksheets[1]
+            last_row = sheet.max_row
+            # Find last row with "Grand Totals:"
+            for row in range(last_row - 6, last_row + 1):
+                cell = sheet[f"A{row}"]
+                if cell.value == "Grand Totals:":
+                    last_row = row - 1
+                    break
+
+            # Find first row with "Staff ID"
+            for row in range(1, last_row):
+                if sheet[f"A{row}"].value is not None:
+                    if sheet[f"A{row}"].value[:8] == "Staff ID":
+                        first_row = row
+                        break
+            # Mapping cols name for each KPIS
+
+            for row in range(first_row - 2, first_row + 1):
+                for col in range(1, sheet.max_column + 1):
+                    cell_value = sheet.cell(row=row, column=col).value
+                    for col_name in D_mapping_cols:
+                        if cell_value and D_mapping_cols[col_name][0] == re.sub(
+                            r"[^a-zA-Z]", "", str(cell_value)
+                        ):
+                            D_mapping_cols[col_name][1] = get_column_letter(col)
+
+            # Find second row with "Staff ID"
+            for row in range(first_row + 3, last_row):
+                if sheet[f"A{row}"].value is not None:
+                    if sheet[f"A{row}"].value[:8] == "Staff ID":
+                        second_row = row
+                        break
+            k_row = second_row - first_row
+            # Find first row with value starting with "For Accounting period dates:" to determine begin date and end date
+            for row in range(1, 20):
+                if sheet[f"I{row}"].value is not None:
+                    if sheet[f"I{row}"].value[:28] == "For Accounting period dates:":
+                        txt = sheet[f"I{row}"].value
+                        match = re.search(
+                            r"For Transaction dates:(\d{1,2}/\d{1,2}/\d{4}) - (\d{1,2}/\d{1,2}/\d{4})",
+                            txt,
+                        )
+                        if match:
+                            begin_date = match.group(1)
+                            end_date = match.group(2)
+                            print(f"Begin date: {begin_date}")
+                            print(f"End date: {end_date}")
+                        else:
+                            print("Transaction dates not found.")
+                        break
+
+            # Process the data
+            for i in range(1, int((last_row - first_row + 1) / k_row + 1)):
+                StaffID = sheet[f"A{(i-1) * k_row + first_row}"].value.split(" ")[3]
+
+                PostedHours = sheet[
+                    f"{D_mapping_cols['PostedHours'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                BankedHoursUsed = sheet[
+                    f"{D_mapping_cols['BankedHoursUsed'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                BusinessHours = sheet[
+                    f"{D_mapping_cols['BusinessHours'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                VarianceHours = sheet[
+                    f"{D_mapping_cols['VarianceHours'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                NonbillHours = sheet[
+                    f"{D_mapping_cols['NonbillHours'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                BillHours = sheet[
+                    f"{D_mapping_cols['BillHours'][1]}{(i-1) * k_row + first_row + 2}"
+                ].value
+                D[i] = [
+                    StaffID,
+                    PostedHours,
+                    BankedHoursUsed,
+                    BusinessHours,
+                    VarianceHours,
+                    NonbillHours,
+                    BillHours,
+                    begin_date,
+                    end_date,
+                ]
+
+            # Create DataFrame
+            df = pd.DataFrame.from_dict(
+                D,
+                orient="index",
+                columns=[
+                    "StaffID",
+                    "PostedHours",
+                    "BankedHoursUsed",
+                    "BusinessHours",
+                    "VarianceHours",
+                    "NonbillHours",
+                    "BillHours",
+                    "begin_date",
+                    "end_date",
+                ],
+            )
+            df.fillna(0.0, inplace=True)
+            df["RunningTime"] = current_time_utc_minus
+
+            df_list.append(df)
+
+        final_df = pd.concat(df_list, ignore_index=True)
+        for i in ["RunningTime", "begin_date", "end_date"]:
+            final_df[i] = pd.to_datetime(final_df[i])
+        return final_df
 
 
 class StaffList:
@@ -29,23 +281,35 @@ class StaffList:
                 last_row = row + 1
                 break
 
-        # Find first row with "Client ID Sub ID"
+        # Find first row with "StaffID"
         for row in range(1, last_row):
             if sheet[f"C{row}"].value is not None:
                 if sheet[f"C{row}"].value == "Staff ID":
                     first_row = row + 1  # First position of StaffID
                     break
-
+        # Find first row with "Full Name:"
+        first_range = 0
+        last_range = 0
+        for row in range(1, last_row):
+            if sheet[f"C{row}"].value is not None:
+                if sheet[f"C{row}"].value == "Full Name:":
+                    if first_range == 0 and last_range == 0:
+                        first_range = row
+                    elif first_range != 0 and last_range == 0:
+                        last_range = row
+                    else:
+                        size_range = last_range - first_range
+                        break
         # Process the data
-        for i in range(1, int((last_row - first_row + 1) / 15 + 1)):
-            StaffID = sheet[f"C{(i-1)*15 + first_row + 1}"].value
-            ReportName = sheet[f"D{(i-1)*15 + first_row + 1}"].value
-            StaffNameNull = sheet[f"D{(i-1)*15 + first_row + 2}"].value
-            StaffOffice = sheet[f"D{(i-1)*15 + first_row + 4}"].value
-            StaffBU = sheet[f"D{(i-1)*15 + first_row + 5}"].value
-            StaffDepartment = sheet[f"D{(i-1)*15 + first_row + 6}"].value
-            ReportingManager = sheet[f"K{(i-1)*15 + first_row + 5}"].value
-            StaffStatus = sheet[f"O{(i-1)*15 + first_row + 1}"].value
+        for i in range(1, int((last_row - first_row + 1) / size_range + 1)):
+            StaffID = sheet[f"C{(i-1)*size_range + first_row + 1}"].value
+            ReportName = sheet[f"D{(i-1)*size_range + first_row + 1}"].value
+            StaffNameNull = sheet[f"D{(i-1)*size_range + first_row + 2}"].value
+            StaffOffice = sheet[f"D{(i-1)*size_range + first_row + 4}"].value
+            StaffBU = sheet[f"D{(i-1)*size_range + first_row + 5}"].value
+            StaffDepartment = sheet[f"D{(i-1)*size_range + first_row + 6}"].value
+            ReportingManager = sheet[f"K{(i-1)*size_range + first_row + 5}"].value
+            StaffStatus = sheet[f"O{(i-1)*size_range + first_row + 1}"].value
             D[i] = [
                 StaffID,
                 ReportName,
@@ -449,10 +713,8 @@ class WIPARRecon:
                     if sheet[f"I{row}"].value[:21] == "For Accounting period":
                         txt = sheet[f"I{row}"].value
                         if txt:
-                            date_match = re.search(r"\d{1,2}/\d{1,2}/\d{4}", txt)
-                            first_date = (
-                                date_match.group() if date_match else "No Date Found"
-                            )
+                            dates = re.findall(r"\d{1,2}/\d{1,2}/\d{4}", txt)
+                            first_date = dates[1] if dates else None
                             break
 
             # Process the data
